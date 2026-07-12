@@ -1,0 +1,56 @@
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+wheels/
+
+# ── Virtual environments ───────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── uv ────────────────────────────────────────────────────────────────────
+.uv/
+# uv.lock is intentionally committed — remove this line if you disagree
+# uv.lock
+
+# ── Environment / secrets ──────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Data / vector store ────────────────────────────────────────────────────
+data/
+*.faiss
+*.pkl
+
+# ── Editors ───────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── macOS ─────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ── Testing ───────────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb

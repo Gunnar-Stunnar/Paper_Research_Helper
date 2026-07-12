@@ -1,0 +1,47 @@
+[project]
+name = "paper-research-helper"
+version = "0.1.0"
+description = "LangChain + LangGraph research assistant with MCP server"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # LangChain ecosystem
+    "langchain>=0.3",
+    "langchain-core>=0.3",
+    "langchain-community>=0.3",
+    "langchain-openai>=0.2",
+    "langchain-text-splitters>=0.3",
+    "langgraph>=0.2",
+    # MCP server
+    "mcp[cli]>=1.0",
+    # Paper / data sources
+    "arxiv>=2.1",
+    "requests>=2.31",
+    # PDF processing
+    "pypdf>=4.0",
+    # Vector store (local, no server required)
+    "faiss-cpu>=1.8",
+    # LLM / embeddings
+    "openai>=1.40",
+    # Utilities
+    "python-dotenv>=1.0",
+    "pydantic>=2.0",
+]
+
+[project.scripts]
+paper-research-helper = "main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
