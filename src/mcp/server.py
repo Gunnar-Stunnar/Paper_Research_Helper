@@ -15,7 +15,10 @@ from __future__ import annotations
 import os
 from typing import Optional
 
+from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
+
+load_dotenv()
 
 from src.adapters.arxiv import ArxivAdapter
 from src.graphs.research_graph import build_research_graph

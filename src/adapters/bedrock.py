@@ -3,52 +3,60 @@
 Wraps ``langchain-aws`` ``ChatBedrock`` to provide pre-configured foundation
 models from AWS Bedrock for use with agents, graphs, and tools in this project.
 
-Bedrock credential resolution (standard boto3 chain, in order)
---------------------------------------------------------------
-1. Explicit ``aws_access_key_id`` / ``aws_secret_access_key`` constructor args
-2. ``AWS_ACCESS_KEY_ID`` / ``AWS_SECRET_ACCESS_KEY`` environment variables
-3. ``~/.aws/credentials`` file (named profile via ``AWS_PROFILE`` or ``aws_profile``)
-4. IAM instance profile / ECS task role / EKS pod identity (when running on AWS)
+Authentication modes (in priority order)
+-----------------------------------------
+1. **Bedrock API key** — create a key in the AWS Bedrock console and set
+   ``BEDROCK_API_KEY`` (or pass ``api_key=``). No IAM credentials required.
+   See: https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys-use.html
+
+2. **IAM credentials** — standard boto3 credential chain:
+   a. Explicit constructor args (``aws_access_key_id`` / ``aws_secret_access_key``)
+   b. ``AWS_ACCESS_KEY_ID`` / ``AWS_SECRET_ACCESS_KEY`` environment variables
+   c. Named profile (``AWS_PROFILE`` env var or ``aws_profile=`` arg)
+   d. IAM instance/task/pod role (when running on AWS infrastructure)
 
 Supported model families
 ------------------------
-Anthropic Claude   anthropic.claude-*
+Anthropic Claude   anthropic.claude-*  (via cross-region inference profiles)
 Amazon Nova        amazon.nova-*
 Amazon Titan       amazon.titan-*
 Meta Llama         meta.llama*
 Mistral            mistral.*
 
-Use cross-region inference profile IDs (``us.`` / ``eu.`` prefix) when you
-need higher throughput limits — e.g. ``us.anthropic.claude-sonnet-4-5-20251101-v1:0``.
-
 Environment variables
 ---------------------
-BEDROCK_MODEL_ID      Bedrock model ID or inference profile ID
-                      (default: us.anthropic.claude-sonnet-4-5-20251101-v1:0)
+BEDROCK_API_KEY       Bedrock API key — preferred over IAM when set
 BEDROCK_REGION        AWS region for the Bedrock endpoint (default: us-east-1)
-AWS_PROFILE           Named boto3 profile to use
-BEDROCK_MAX_TOKENS    Max output tokens                   (default: 4096)
-BEDROCK_TEMPERATURE   Sampling temperature                (default: 0)
+BEDROCK_MODEL_ID      Model ID or inference profile ID
+                      (default: us.anthropic.claude-sonnet-4-5-20251101-v1:0)
+BEDROCK_MAX_TOKENS    Max output tokens    (default: 4096)
+BEDROCK_TEMPERATURE   Sampling temperature (default: 0)
 
-Usage
------
+IAM-only env vars (ignored when BEDROCK_API_KEY is set)
+AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN
+AWS_PROFILE
+
+Usage — API key (simplest)
+--------------------------
+    import os
+    os.environ["BEDROCK_API_KEY"] = "your-bedrock-api-key"
+
     from src.adapters.bedrock import BedrockAdapter
-
-    # Default — Claude Sonnet via cross-region inference profile
     llm = BedrockAdapter().chat_model()
 
-    # Specific model
-    llm = BedrockAdapter(model_id="amazon.nova-pro-v1:0").chat_model()
+Usage — IAM credentials
+-----------------------
+    llm = BedrockAdapter(
+        aws_access_key_id="AKIA...",
+        aws_secret_access_key="secret",
+    ).chat_model()
 
-    # Named convenience constructors
+Usage — named convenience constructors
+---------------------------------------
     llm = BedrockAdapter.claude_sonnet().chat_model()
-    llm = BedrockAdapter.claude_haiku().chat_model()
+    llm = BedrockAdapter.claude_haiku(streaming=True).chat_model()
     llm = BedrockAdapter.nova_pro().chat_model()
-    llm = BedrockAdapter.llama3().chat_model()
-
-    # Plug into any agent or graph
-    from src.agents.research_agent import ResearchAgent
-    agent = ResearchAgent(llm=BedrockAdapter.claude_sonnet().chat_model())
+    llm = BedrockAdapter.llama3(size="70b").chat_model()
 """
 
 from __future__ import annotations
@@ -56,39 +64,38 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-import boto3
 from langchain_aws import ChatBedrock
 from langchain_core.language_models import BaseChatModel
 
 
 # ---------------------------------------------------------------------------
-# Model catalogue — well-known IDs for convenience constructors
+# Model catalogue
 # ---------------------------------------------------------------------------
 
 class ModelID:
-    """Well-known Bedrock model and inference-profile IDs."""
+    """Well-known Bedrock model and cross-region inference profile IDs."""
 
     # Anthropic Claude — cross-region inference profiles (higher throughput)
-    CLAUDE_OPUS         = "us.anthropic.claude-opus-4-5-20251101-v1:0"
-    CLAUDE_SONNET       = "us.anthropic.claude-sonnet-4-5-20251101-v1:0"
-    CLAUDE_HAIKU        = "us.anthropic.claude-haiku-3-5-20251212-v1:0"
+    CLAUDE_OPUS    = "us.anthropic.claude-opus-4-5-20251101-v1:0"
+    CLAUDE_SONNET  = "us.anthropic.claude-sonnet-4-5-20251101-v1:0"
+    CLAUDE_HAIKU   = "us.anthropic.claude-haiku-3-5-20251212-v1:0"
 
     # Amazon Nova
-    NOVA_PRO            = "amazon.nova-pro-v1:0"
-    NOVA_LITE           = "amazon.nova-lite-v1:0"
-    NOVA_MICRO          = "amazon.nova-micro-v1:0"
+    NOVA_PRO       = "amazon.nova-pro-v1:0"
+    NOVA_LITE      = "amazon.nova-lite-v1:0"
+    NOVA_MICRO     = "amazon.nova-micro-v1:0"
 
     # Amazon Titan
-    TITAN_TEXT_EXPRESS  = "amazon.titan-text-express-v1"
-    TITAN_TEXT_LITE     = "amazon.titan-text-lite-v1"
+    TITAN_EXPRESS  = "amazon.titan-text-express-v1"
+    TITAN_LITE     = "amazon.titan-text-lite-v1"
 
     # Meta Llama
-    LLAMA3_70B          = "meta.llama3-70b-instruct-v1:0"
-    LLAMA3_8B           = "meta.llama3-8b-instruct-v1:0"
+    LLAMA3_70B     = "meta.llama3-70b-instruct-v1:0"
+    LLAMA3_8B      = "meta.llama3-8b-instruct-v1:0"
 
     # Mistral
-    MISTRAL_LARGE       = "mistral.mistral-large-2402-v1:0"
-    MISTRAL_7B          = "mistral.mistral-7b-instruct-v0:2"
+    MISTRAL_LARGE  = "mistral.mistral-large-2402-v1:0"
+    MISTRAL_7B     = "mistral.mistral-7b-instruct-v0:2"
 
 
 DEFAULT_MODEL_ID    = ModelID.CLAUDE_SONNET
@@ -104,20 +111,21 @@ class BedrockAdapter:
     ----------
     model_id:
         Bedrock model ID or cross-region inference profile ID.
-        Falls back to the ``BEDROCK_MODEL_ID`` env var, then
-        ``us.anthropic.claude-sonnet-4-5-20251101-v1:0``.
+        Falls back to ``BEDROCK_MODEL_ID`` env var.
+    api_key:
+        Bedrock API key. Falls back to ``BEDROCK_API_KEY`` env var.
+        When set, IAM credential parameters are ignored.
     region:
-        AWS region for the Bedrock endpoint. Falls back to
-        ``BEDROCK_REGION`` env var, then ``us-east-1``.
+        AWS region. Falls back to ``BEDROCK_REGION`` env var.
     aws_profile:
-        Named boto3 credentials profile. Falls back to ``AWS_PROFILE`` env var.
+        Named boto3 credentials profile. Falls back to ``AWS_PROFILE``.
+        Ignored when *api_key* is provided.
     aws_access_key_id / aws_secret_access_key / aws_session_token:
-        Explicit AWS credentials. When provided these take precedence over
-        the profile and environment variables.
+        Explicit IAM credentials. Ignored when *api_key* is provided.
     temperature:
-        Sampling temperature. Falls back to ``BEDROCK_TEMPERATURE``, then 0.
+        Sampling temperature. Falls back to ``BEDROCK_TEMPERATURE``.
     max_tokens:
-        Max completion tokens. Falls back to ``BEDROCK_MAX_TOKENS``, then 4096.
+        Max completion tokens. Falls back to ``BEDROCK_MAX_TOKENS``.
     streaming:
         Enable token streaming.
     """
@@ -125,6 +133,7 @@ class BedrockAdapter:
     def __init__(
         self,
         model_id: Optional[str] = None,
+        api_key: Optional[str] = None,
         region: Optional[str] = None,
         aws_profile: Optional[str] = None,
         aws_access_key_id: Optional[str] = None,
@@ -148,25 +157,14 @@ class BedrockAdapter:
         )
         self._streaming = streaming
 
-        # Build a boto3 session so credential resolution is explicit and
-        # testable rather than relying on implicit global state.
-        session_kwargs: dict = {"region_name": self._region}
-        profile = aws_profile or os.getenv("AWS_PROFILE")
-        if profile:
-            session_kwargs["profile_name"] = profile
+        # Resolve API key — takes priority over all IAM credential options
+        self._api_key = api_key or os.getenv("BEDROCK_API_KEY")
 
-        session = boto3.Session(**session_kwargs)
-
-        # Override with explicit credentials if provided
-        if aws_access_key_id and aws_secret_access_key:
-            self._client = session.client(
-                "bedrock-runtime",
-                aws_access_key_id=aws_access_key_id,
-                aws_secret_access_key=aws_secret_access_key,
-                aws_session_token=aws_session_token,
-            )
-        else:
-            self._client = session.client("bedrock-runtime")
+        # IAM credential fields (only used when no API key is present)
+        self._aws_profile = aws_profile or os.getenv("AWS_PROFILE")
+        self._aws_access_key_id = aws_access_key_id
+        self._aws_secret_access_key = aws_secret_access_key
+        self._aws_session_token = aws_session_token
 
     # ------------------------------------------------------------------
     # Public API
@@ -177,16 +175,41 @@ class BedrockAdapter:
 
         The returned object is a drop-in replacement for ``ChatOpenAI`` or
         ``ChatAnthropic`` anywhere a ``BaseChatModel`` is accepted.
+
+        When *api_key* is set it is passed directly to ``ChatBedrock``, which
+        stores it as the ``AWS_BEARER_TOKEN_BEDROCK`` process environment
+        variable and sends it as a Bearer token — no IAM credentials required.
         """
-        return ChatBedrock(
-            model_id=self._model_id,
-            client=self._client,
-            model_kwargs={
+        kwargs: dict = {
+            "model_id": self._model_id,
+            "region_name": self._region,
+            "streaming": self._streaming,
+            "model_kwargs": {
                 "temperature": self._temperature,
                 "max_tokens": self._max_tokens,
             },
-            streaming=self._streaming,
-        )
+        }
+
+        if self._api_key:
+            # API key auth — library handles Bearer token injection
+            kwargs["api_key"] = self._api_key
+        else:
+            # IAM credential chain
+            if self._aws_profile:
+                kwargs["credentials_profile_name"] = self._aws_profile
+            if self._aws_access_key_id:
+                kwargs["aws_access_key_id"] = self._aws_access_key_id
+            if self._aws_secret_access_key:
+                kwargs["aws_secret_access_key"] = self._aws_secret_access_key
+            if self._aws_session_token:
+                kwargs["aws_session_token"] = self._aws_session_token
+
+        return ChatBedrock(**kwargs)
+
+    @property
+    def auth_mode(self) -> str:
+        """Return a human-readable description of the active auth mode."""
+        return "api_key" if self._api_key else "iam"
 
     # ------------------------------------------------------------------
     # Convenience constructors
@@ -241,5 +264,6 @@ class BedrockAdapter:
         return (
             f"BedrockAdapter(model_id={self._model_id!r}, "
             f"region={self._region!r}, "
+            f"auth={self.auth_mode!r}, "
             f"temperature={self._temperature})"
         )

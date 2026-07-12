@@ -17,6 +17,10 @@ from __future__ import annotations
 import argparse
 import sys
 
+from dotenv import load_dotenv
+
+load_dotenv()  # loads .env into os.environ before any command runs
+
 
 def cmd_serve(_args: argparse.Namespace) -> None:
     """Start the MCP server."""
