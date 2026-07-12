@@ -19,6 +19,7 @@ Flow
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, TypedDict
 
 from langchain_core.language_models import BaseChatModel
@@ -29,6 +30,8 @@ from langgraph.graph.message import add_messages
 
 from src.agents.research_agent import ResearchAgent
 from src.agents.qa_agent import QAAgent
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +54,9 @@ class ResearchState(TypedDict):
 
 def _build_search_node(research_agent: ResearchAgent):
     def search_node(state: ResearchState) -> dict:
+        log.info("NODE search | query=%r", state["query"])
         results = research_agent.run(state["query"])
+        log.info("NODE search | done, result length=%d chars", len(results))
         return {"search_results": results}
 
     return search_node
@@ -59,7 +64,9 @@ def _build_search_node(research_agent: ResearchAgent):
 
 def _build_answer_node(qa_agent: QAAgent):
     def answer_node(state: ResearchState) -> dict:
+        log.info("NODE answer | query=%r", state["query"])
         answer = qa_agent.run(state["query"])
+        log.info("NODE answer | done, answer length=%d chars", len(answer))
         return {"final_answer": answer}
 
     return answer_node

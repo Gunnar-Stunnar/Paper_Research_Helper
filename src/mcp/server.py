@@ -36,17 +36,16 @@ _pipeline = None
 def _get_graph():
     global _graph
     if _graph is None:
-        from langchain_openai import ChatOpenAI
-        from langchain_openai import OpenAIEmbeddings
         from langchain_community.vectorstores import FAISS
+        from src.llm import get_llm, get_embeddings
 
-        embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+        embeddings = get_embeddings()
         vectorstore = FAISS.load_local(
             os.getenv("VECTORSTORE_PATH", "data/vectorstore"),
             embeddings,
             allow_dangerous_deserialization=True,
         )
-        llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"), temperature=0)
+        llm = get_llm()
         _graph = build_research_graph(llm=llm, vectorstore=vectorstore)
     return _graph
 
@@ -54,10 +53,10 @@ def _get_graph():
 def _get_pipeline():
     global _pipeline
     if _pipeline is None:
-        from langchain_openai import ChatOpenAI, OpenAIEmbeddings
         from langchain_community.vectorstores import FAISS
+        from src.llm import get_embeddings
 
-        embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+        embeddings = get_embeddings()
         vectorstore_path = os.getenv("VECTORSTORE_PATH", "data/vectorstore")
 
         try:
